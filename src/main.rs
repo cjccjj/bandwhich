@@ -137,7 +137,7 @@ where
                     let render_start_time = Instant::now();
                     let mut force_ui_refresh = false;
                     // Check if we've been explicitly unparked (e.g., by space bar)
-                    if thread::park_timeout(Duration::from_millis(0)).is_none() {
+                    thread::park_timeout(Duration::from_millis(0));
                         force_ui_refresh = true;
                     }
                     // Always check if it's time for a data refresh (1s interval)
