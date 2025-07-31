@@ -275,6 +275,15 @@ where
                             }
 
                             display_handler.unpark();
+                            // Immediately update the UI just like Tab
+                            let paused = paused.load(Ordering::SeqCst);
+                            let elapsed_time = elapsed_time(
+                                *last_start_time.read().unwrap(),
+                                *cumulative_time.read().unwrap(),
+                                paused,
+                            );
+                            let table_cycle_offset_val = table_cycle_offset.load(Ordering::SeqCst);
+                            ui.draw(paused, elapsed_time, table_cycle_offset_val);
                         }
                         Event::Key(KeyEvent {
                             modifiers: KeyModifiers::NONE,
