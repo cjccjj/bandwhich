@@ -52,22 +52,15 @@ jobs:
     strategy:
       matrix:
         build:
-          - android-aarch64
           - linux-aarch64-gnu
           - linux-aarch64-musl
           - linux-armv7-gnueabihf
           - linux-armv7-musleabihf
           - linux-x64-gnu
           - linux-x64-musl
-          - macos-aarch64
-          - macos-x64
-          - windows-x64-msvc
         include:
           - os: ubuntu-latest # default
           - cargo: cargo # default; overwrite with `cross` if necessary
-          - build: android-aarch64
-            target: aarch64-linux-android
-            cargo: cross
           - build: linux-aarch64-gnu
             target: aarch64-unknown-linux-gnu
             cargo: cross
@@ -84,17 +77,6 @@ jobs:
             target: x86_64-unknown-linux-gnu
           - build: linux-x64-musl
             target: x86_64-unknown-linux-musl
-          - build: macos-aarch64
-            # Go back ot `macos-latest` after migration is complete
-            # See https://github.blog/changelog/2024-04-01-macos-14-sonoma-is-generally-available-and-the-latest-macos-runner-image/.
-            os: macos-14
-            target: aarch64-apple-darwin
-          - build: macos-x64
-            os: macos-14
-            target: x86_64-apple-darwin
-          - build: windows-x64-msvc
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout repository
@@ -108,10 +90,7 @@ jobs:
 
       - name: Install cross
         if: matrix.cargo == 'cross'
-        # The latest release of `cross` is not able to build/link for `aarch64-linux-android`
-        # See: https://github.com/cross-rs/cross/issues/1222
-        # This is fixed on `main` but not yet released. To avoid a breakage somewhen in the future
-        # pin the cross revision used to the latest HEAD at 04/2024.
+        # Pin the cross revision to avoid potential breakage in the future
         # Go back to taiki-e/install-action once cross 0.3 is released.
         uses: taiki-e/cache-cargo-install-action@v2
         with:
@@ -129,30 +108,21 @@ jobs:
 
       - name: Collect build artifacts
         shell: bash
-        env:
-          BANDWHICH_BIN: ${{ contains(matrix.os, 'windows') && 'bandwhich.exe' || 'bandwhich' }}
         run: |
           mkdir "$PKGDIR"
-          mv "target/${{ matrix.target }}/release/$BANDWHICH_BIN" "$PKGDIR"
+          mv "target/${{ matrix.target }}/release/bandwhich" "$PKGDIR"
           mv "$BANDWHICH_GEN_DIR" "$PKGDIR"
 
-      - name: Tar release (Unix)
-        if: ${{ !contains(matrix.os, 'windows') }}
+      - name: Tar release
         working-directory: ${{ env.PKGDIR }}
         run: tar cvfz bandwhich-${{ github.ref_name }}-${{ matrix.target }}.tar.gz *
-
-      - name: Zip release (Windows)
-        if: contains(matrix.os, 'windows')
-        working-directory: ${{ env.PKGDIR }}
-        run: Compress-Archive -Path * -DestinationPath bandwhich-${{ github.ref_name }}-${{ matrix.target }}.zip
 
       - name: Upload release archive
         uses: actions/upload-release-asset@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ARCHIVE_EXT: ${{ contains(matrix.os, 'windows') && 'zip' || 'tar.gz' }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ env.PKGDIR }}/bandwhich-${{ github.ref_name }}-${{ matrix.target }}.${{ env.ARCHIVE_EXT }}
-          asset_name: bandwhich-${{ github.ref_name }}-${{ matrix.target }}.${{ env.ARCHIVE_EXT }}
+          asset_path: ${{ env.PKGDIR }}/bandwhich-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          asset_name: bandwhich-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
           asset_content_type: application/octet-stream
