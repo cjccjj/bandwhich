@@ -43,7 +43,7 @@ jobs:
   build-release:
     name: build-release
     needs: create-release
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     env:
       # Emit backtraces on panics.
       RUST_BACKTRACE: 1
@@ -51,32 +51,12 @@ jobs:
       PKGDIR: github-actions-pkg
     strategy:
       matrix:
-        build:
-          - linux-aarch64-gnu
-          - linux-aarch64-musl
-          - linux-armv7-gnueabihf
-          - linux-armv7-musleabihf
-          - linux-x64-gnu
-          - linux-x64-musl
+        build: [linux-x64-gnu]
         include:
-          - os: ubuntu-latest # default
-          - cargo: cargo # default; overwrite with `cross` if necessary
-          - build: linux-aarch64-gnu
-            target: aarch64-unknown-linux-gnu
-            cargo: cross
-          - build: linux-aarch64-musl
-            target: aarch64-unknown-linux-musl
-            cargo: cross
-          - build: linux-armv7-gnueabihf
-            target: armv7-unknown-linux-gnueabihf
-            cargo: cross
-          - build: linux-armv7-musleabihf
-            target: armv7-unknown-linux-musleabihf
-            cargo: cross
           - build: linux-x64-gnu
             target: x86_64-unknown-linux-gnu
-          - build: linux-x64-musl
-            target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            cargo: cargo
 
     steps:
       - name: Checkout repository
@@ -86,17 +66,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
-
-      - name: Install cross
-        if: matrix.cargo == 'cross'
-        # Pin the cross revision to avoid potential breakage in the future
-        # Go back to taiki-e/install-action once cross 0.3 is released.
-        uses: taiki-e/cache-cargo-install-action@v2
-        with:
-          tool: cross
-          git: https://github.com/cross-rs/cross.git
-          rev: 085092c
+          targets: x86_64-unknown-linux-gnu
 
       - name: Build release binary
         shell: bash
@@ -104,18 +74,18 @@ jobs:
           RUSTFLAGS: "-C strip=symbols"
         run: |
           mkdir -p "$BANDWHICH_GEN_DIR"
-          ${{ matrix.cargo }} build --verbose --release --target ${{ matrix.target }}
+          cargo build --verbose --release --target x86_64-unknown-linux-gnu
 
       - name: Collect build artifacts
         shell: bash
         run: |
           mkdir "$PKGDIR"
-          mv "target/${{ matrix.target }}/release/bandwhich" "$PKGDIR"
+          mv "target/x86_64-unknown-linux-gnu/release/bandwhich" "$PKGDIR"
           mv "$BANDWHICH_GEN_DIR" "$PKGDIR"
 
       - name: Tar release
         working-directory: ${{ env.PKGDIR }}
-        run: tar cvfz bandwhich-${{ github.ref_name }}-${{ matrix.target }}.tar.gz *
+        run: tar cvfz bandwhich-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz *
 
       - name: Upload release archive
         uses: actions/upload-release-asset@v1
@@ -123,6 +93,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ env.PKGDIR }}/bandwhich-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
-          asset_name: bandwhich-${{ github.ref_name }}-${{ matrix.target }}.tar.gz
+          asset_path: ${{ env.PKGDIR }}/bandwhich-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
+          asset_name: bandwhich-${{ github.ref_name }}-x86_64-unknown-linux-gnu.tar.gz
           asset_content_type: application/octet-stream
