@@ -36,7 +36,12 @@ use simplelog::WriteLogger;
 use crate::cli::Opt;
 use crate::os::ProcessInfo;
 
-const DISPLAY_DELTA: Duration = Duration::from_millis(1000);
+// Data refresh interval remains at 1000ms
+const DATA_REFRESH_DELTA: Duration = Duration::from_millis(1000);
+// UI refresh rate starts at 1000ms for first 5 cycles, then increases to 5000ms
+const INITIAL_UI_REFRESH_DELTA: Duration = Duration::from_millis(1000);
+const LATER_UI_REFRESH_DELTA: Duration = Duration::from_millis(5000);
+const UI_REFRESH_CHANGE_CYCLE: usize = 5;
 
 fn main() -> eyre::Result<()> {
     let opts = Opt::parse();
@@ -121,28 +126,56 @@ where
             let ui = ui.clone();
 
             move || {
+                // Track the number of UI refresh cycles
+                let mut cycle_count = 0;
+                // Track the last data refresh time
+                let mut last_data_refresh = Instant::now();
+                
                 while running.load(Ordering::Acquire) {
                     let render_start_time = Instant::now();
-                    let utilization = network_utilization.lock().unwrap().clone_and_reset();
-                    let OpenSockets { sockets_to_procs } = get_open_sockets();
-                    let mut ip_to_host = IpTable::new();
-                    if let Some(dns_client) = dns_client.as_mut() {
-                        ip_to_host = dns_client.cache();
-                        let unresolved_ips = utilization
-                            .connections
-                            .keys()
-                            .filter(|conn| !ip_to_host.contains_key(&conn.remote_socket.ip))
-                            .map(|conn| conn.remote_socket.ip)
-                            .collect::<Vec<_>>();
-                        dns_client.resolve(unresolved_ips);
+                    
+                    // Determine current UI refresh rate based on cycle count
+                    let current_ui_refresh_delta = if cycle_count < UI_REFRESH_CHANGE_CYCLE {
+                        INITIAL_UI_REFRESH_DELTA
+                    } else {
+                        LATER_UI_REFRESH_DELTA
+                    };
+                    
+                    // Check if it's time for a data refresh (always at 1000ms intervals)
+                    let data_refresh_needed = last_data_refresh.elapsed() >= DATA_REFRESH_DELTA;
+                    
+                    if data_refresh_needed {
+                        // Reset the data refresh timer
+                        last_data_refresh = Instant::now();
+                        
+                        // Perform data collection
+                        let utilization = network_utilization.lock().unwrap().clone_and_reset();
+                        let OpenSockets { sockets_to_procs } = get_open_sockets();
+                        let mut ip_to_host = IpTable::new();
+                        if let Some(dns_client) = dns_client.as_mut() {
+                            ip_to_host = dns_client.cache();
+                            let unresolved_ips = utilization
+                                .connections
+                                .keys()
+                                .filter(|conn| !ip_to_host.contains_key(&conn.remote_socket.ip))
+                                .map(|conn| conn.remote_socket.ip)
+                                .collect::<Vec<_>>();
+                            dns_client.resolve(unresolved_ips);
+                        }
+                        
+                        // Update UI state with new data
+                        let mut ui = ui.lock().unwrap();
+                        let paused = paused.load(Ordering::SeqCst);
+                        if !paused {
+                            ui.update_state(sockets_to_procs, utilization, ip_to_host);
+                        }
                     }
+                    
+                    // Always render the UI based on the current UI refresh rate
                     {
                         let mut ui = ui.lock().unwrap();
                         let paused = paused.load(Ordering::SeqCst);
                         let table_cycle_offset = table_cycle_offset.load(Ordering::SeqCst);
-                        if !paused {
-                            ui.update_state(sockets_to_procs, utilization, ip_to_host);
-                        }
                         let elapsed_time = elapsed_time(
                             *last_start_time.read().unwrap(),
                             *cumulative_time.read().unwrap(),
@@ -155,11 +188,17 @@ where
                             ui.draw(paused, elapsed_time, table_cycle_offset);
                         }
                     }
+                    
+                    // Increment cycle count
+                    cycle_count += 1;
+                    
+                    // Sleep until next UI refresh
                     let render_duration = render_start_time.elapsed();
-                    if render_duration < DISPLAY_DELTA {
-                        park_timeout(DISPLAY_DELTA - render_duration);
+                    if render_duration < current_ui_refresh_delta {
+                        park_timeout(current_ui_refresh_delta - render_duration);
                     }
                 }
+                
                 if !raw_mode {
                     let mut ui = ui.lock().unwrap();
                     ui.end();
