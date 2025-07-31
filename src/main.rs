@@ -119,12 +119,10 @@ where
             let running = running.clone();
             let paused = paused.clone();
             let table_cycle_offset = table_cycle_offset.clone();
-
             let network_utilization = network_utilization.clone();
             let last_start_time = last_start_time.clone();
             let cumulative_time = cumulative_time.clone();
             let ui = ui.clone();
-
             move || {
                 // Track the number of UI refresh cycles (for interactive UI only)
                 let mut ui_cycle_count = 0;
@@ -132,12 +130,11 @@ where
                 let mut last_data_refresh = Instant::now();
                 // Track the last UI refresh time (for interactive UI only)
                 let mut last_ui_refresh = Instant::now();
-                
                 while running.load(Ordering::Acquire) {
                     let render_start_time = Instant::now();
                     let mut force_ui_refresh = false;
                     // Check if we've been explicitly unparked (e.g., by space bar)
-                    thread::park_timeout(Duration::from_millis(0));
+                    if thread::park_timeout(Duration::from_millis(0)) != () {
                         force_ui_refresh = true;
                     }
                     // Always check if it's time for a data refresh (1s interval)
