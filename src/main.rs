@@ -126,28 +126,20 @@ where
             let ui = ui.clone();
 
             move || {
-                // Track the number of UI refresh cycles
-                let mut cycle_count = 0;
-                // Track the last data refresh time
+                // Track the number of UI refresh cycles (for interactive UI only)
+                let mut ui_cycle_count = 0;
+                // Track the last data refresh time (always 1s)
                 let mut last_data_refresh = Instant::now();
+                // Track the last UI refresh time (for interactive UI only)
+                let mut last_ui_refresh = Instant::now();
                 
                 while running.load(Ordering::Acquire) {
                     let render_start_time = Instant::now();
                     
-                    // Determine current UI refresh rate based on cycle count
-                    let current_ui_refresh_delta = if cycle_count < UI_REFRESH_CHANGE_CYCLE {
-                        INITIAL_UI_REFRESH_DELTA
-                    } else {
-                        LATER_UI_REFRESH_DELTA
-                    };
-                    
-                    // Check if it's time for a data refresh (always at 1000ms intervals)
+                    // Always check if it's time for a data refresh (1s interval)
                     let data_refresh_needed = last_data_refresh.elapsed() >= DATA_REFRESH_DELTA;
-                    
                     if data_refresh_needed {
-                        // Reset the data refresh timer
                         last_data_refresh = Instant::now();
-                        
                         // Perform data collection
                         let utilization = network_utilization.lock().unwrap().clone_and_reset();
                         let OpenSockets { sockets_to_procs } = get_open_sockets();
@@ -162,7 +154,6 @@ where
                                 .collect::<Vec<_>>();
                             dns_client.resolve(unresolved_ips);
                         }
-                        
                         // Update UI state with new data
                         let mut ui = ui.lock().unwrap();
                         let paused = paused.load(Ordering::SeqCst);
@@ -170,9 +161,28 @@ where
                             ui.update_state(sockets_to_procs, utilization, ip_to_host);
                         }
                     }
-                    
-                    // Always render the UI based on the current UI refresh rate
-                    {
+
+                    // Always render raw output at 1s interval
+                    if raw_mode {
+                        let mut ui = ui.lock().unwrap();
+                        ui.output_text(&mut write_to_stdout);
+                        // Sleep to maintain 1s interval for raw mode
+                        let render_duration = render_start_time.elapsed();
+                        if render_duration < DATA_REFRESH_DELTA {
+                            park_timeout(DATA_REFRESH_DELTA - render_duration);
+                        }
+                        continue;
+                    }
+
+                    // For interactive UI: draw at 1s for first 5 cycles, then 5s
+                    let current_ui_refresh_delta = if ui_cycle_count < UI_REFRESH_CHANGE_CYCLE {
+                        INITIAL_UI_REFRESH_DELTA
+                    } else {
+                        LATER_UI_REFRESH_DELTA
+                    };
+                    let ui_refresh_needed = last_ui_refresh.elapsed() >= current_ui_refresh_delta;
+                    if ui_refresh_needed {
+                        last_ui_refresh = Instant::now();
                         let mut ui = ui.lock().unwrap();
                         let paused = paused.load(Ordering::SeqCst);
                         let table_cycle_offset = table_cycle_offset.load(Ordering::SeqCst);
@@ -181,22 +191,12 @@ where
                             *cumulative_time.read().unwrap(),
                             paused,
                         );
+                        ui.draw(paused, elapsed_time, table_cycle_offset);
+                        ui_cycle_count += 1;
+                    }
 
-                        if raw_mode {
-                            ui.output_text(&mut write_to_stdout);
-                        } else {
-                            ui.draw(paused, elapsed_time, table_cycle_offset);
-                        }
-                    }
-                    
-                    // Increment cycle count
-                    cycle_count += 1;
-                    
-                    // Sleep until next UI refresh
-                    let render_duration = render_start_time.elapsed();
-                    if render_duration < current_ui_refresh_delta {
-                        park_timeout(current_ui_refresh_delta - render_duration);
-                    }
+                    // Sleep a short time to avoid busy loop
+                    park_timeout(Duration::from_millis(50));
                 }
                 
                 if !raw_mode {
