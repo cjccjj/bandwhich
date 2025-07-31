@@ -135,7 +135,11 @@ where
                 
                 while running.load(Ordering::Acquire) {
                     let render_start_time = Instant::now();
-                    
+                    let mut force_ui_refresh = false;
+                    // Check if we've been explicitly unparked (e.g., by space bar)
+                    if thread::park_timeout(Duration::from_millis(0)).is_none() {
+                        force_ui_refresh = true;
+                    }
                     // Always check if it's time for a data refresh (1s interval)
                     let data_refresh_needed = last_data_refresh.elapsed() >= DATA_REFRESH_DELTA;
                     if data_refresh_needed {
@@ -174,13 +178,13 @@ where
                         continue;
                     }
 
-                    // For interactive UI: draw at 1s for first 5 cycles, then 5s
+                    // For interactive UI: draw at 1s for first 5 cycles, then 5s, or immediately if unparked
                     let current_ui_refresh_delta = if ui_cycle_count < UI_REFRESH_CHANGE_CYCLE {
                         INITIAL_UI_REFRESH_DELTA
                     } else {
                         LATER_UI_REFRESH_DELTA
                     };
-                    let ui_refresh_needed = last_ui_refresh.elapsed() >= current_ui_refresh_delta;
+                    let ui_refresh_needed = last_ui_refresh.elapsed() >= current_ui_refresh_delta || force_ui_refresh;
                     if ui_refresh_needed {
                         last_ui_refresh = Instant::now();
                         let mut ui = ui.lock().unwrap();
