@@ -284,7 +284,7 @@ impl Table {
             .iter()
             .map(|(proc_info, data_for_process)| {
                 [
-                    proc_info.name.to_string(),
+                    format!("{} ({})", proc_info.name, proc_info.command),
                     proc_info.pid.to_string(),
                     data_for_process.connection_count.to_string(),
                     display_upload_and_download(
