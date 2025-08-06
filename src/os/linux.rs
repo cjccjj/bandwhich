@@ -17,7 +17,14 @@ pub(crate) fn get_open_sockets() -> OpenSockets {
             let Ok(fds) = process.fd() else { continue };
             let Ok(stat) = process.stat() else { continue };
             let proc_name = stat.comm;
-            let proc_info = ProcessInfo::new(&proc_name, stat.pid as u32);
+            
+            // Get the command line arguments
+            let command = match process.cmdline() {
+                Ok(cmdline) => cmdline.join(" "),
+                Err(_) => proc_name.clone(), // Fallback to process name if cmdline fails
+            };
+            
+            let proc_info = ProcessInfo::new(&proc_name, stat.pid as u32, &command);
             for fd in fds.filter_map(|res| res.ok()) {
                 if let FDTarget::Socket(inode) = fd.target {
                     inode_to_proc.insert(inode, proc_info.clone());
