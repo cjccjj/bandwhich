@@ -1,3 +1,9 @@
+This is a fork of [upstream-project](https://github.com/imsnif/bandwhich)
+The main differences are:
+ - Starts quickly, but after a few seconds the refresh interval increases to 5s for a more stable display and to reduce eye strain.
+ - Added command information in the process panel.
+All other functionality remains the same as the upstream project.  
+
 # bandwhich
 
 ![demo](res/demo.gif)
